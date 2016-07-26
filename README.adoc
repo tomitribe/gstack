@@ -1,0 +1,17 @@
+= GStack
+
+== Name
+
+Grep Stack
+
+== Goal
+
+Make simpler and more advanced than using `egrep` + `grep -v` to filter a thread dump.
+
+== Usage
+
+[source]
+----
+jstack 1234 | java -jar gstack-bundle.jar --include=tomitribe --exclude=sun
+----
+
