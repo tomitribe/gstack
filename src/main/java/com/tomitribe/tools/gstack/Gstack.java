@@ -8,6 +8,7 @@ import org.tomitribe.crest.api.Option;
 import org.tomitribe.crest.api.Out;
 
 import java.io.BufferedReader;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -29,20 +30,34 @@ public class Gstack {
                                @In final InputStream in,
                                @Out final PrintStream out,
                                @Option("include") final String[] include,
-                               @Option("exclude") final String[] exclude) throws IOException {
-        if ((include == null || include.length == 0) && (exclude == null || exclude.length == 0)) {
-            throw new IllegalArgumentException("No filter provided");
+                               @Option("exclude") final String[] exclude,
+                               @Option("file") final String[] files) throws IOException {
+        final Pattern[] includes = include == null || include.length == 0 ?
+                new Pattern[]{Pattern.compile(".*")} : ofNullable(include).map(i -> Stream.of(i)
+                .map(f -> useContain ? ".*" + f + ".*" : f)
+                .map(Pattern::compile)
+                .toArray(Pattern[]::new)).orElse(null);
+        final Pattern[] excludes = exclude == null || exclude.length == 0 ?
+                new Pattern[0] : ofNullable(exclude).map(e -> Stream.of(e)
+                .map(f -> useContain ? ".*" + f + ".*" : f)
+                .map(Pattern::compile)
+                .toArray(Pattern[]::new)).orElse(null);
+
+        if (files == null || files.length == 0) {
+            execute(in, out, bufferSize, includes, excludes);
+        } else {
+            Stream.of(files).forEach(f -> {
+                try (final InputStream is = new FileInputStream(f)) {
+                    execute(is, out, bufferSize, includes, excludes);
+                } catch (final IOException e) {
+                    throw new IllegalStateException(e);
+                }
+            });
         }
+    }
 
-        final Pattern[] includes = ofNullable(include).map(i -> Stream.of(i)
-                .map(f -> useContain ? ".*" + f + ".*" : f)
-                .map(Pattern::compile)
-                .toArray(Pattern[]::new)).orElse(null);
-        final Pattern[] excludes = ofNullable(exclude).map(e -> Stream.of(e)
-                .map(f -> useContain ? ".*" + f + ".*" : f)
-                .map(Pattern::compile)
-                .toArray(Pattern[]::new)).orElse(null);
-
+    private static void execute(final InputStream in, final PrintStream out,
+                                final int bufferSize, final Pattern[] includes, final Pattern[] excludes) throws IOException {
         try (final BufferedReader reader = new BufferedReader(new InputStreamReader(in) {
             @Override
             public void close() throws IOException {
@@ -60,27 +75,23 @@ public class Gstack {
             String stackLine;
             final StringBuilder builder = new StringBuilder();
             while ((stackLine = reader.readLine()) != null) {
-                of(stackLine).filter(c ->
-                        (includes == null || includes.length == 0 || Stream.of(includes)
-                                .filter(p -> p.matcher(c).matches())
-                                .findAny()
-                                .isPresent()) &&
-                        (excludes == null || excludes.length == 0 || !Stream.of(excludes)
-                                .filter(p -> p.matcher(c).matches())
-                                .findAny()
-                                .isPresent()))
-                        .ifPresent(c -> builder.append(c).append(lineSeparator()));
+                if (stackLine.trim().isEmpty()) {
+                    continue;
+                }
 
                 if (stackLine.startsWith("\"")) { // thread name
                     final String thread = threadLine;
-                    of(builder)
-                            .filter(b -> b.length() > 0)
-                            .ifPresent(b -> {
-                                out.println(thread);
-                                out.print(b);
-                            });
+                    of(builder).filter(b -> b.length() > 0).ifPresent(b -> {
+                        out.println(thread);
+                        out.print(b);
+                    });
                     builder.setLength(0);
                     threadLine = stackLine;
+                } else {
+                    of(stackLine).filter(c ->
+                            (includes == null || includes.length == 0 || Stream.of(includes).anyMatch(p -> p.matcher(c).matches())) &&
+                                    (excludes == null || excludes.length == 0 || Stream.of(excludes).noneMatch(p -> p.matcher(c).matches())))
+                            .ifPresent(c -> builder.append(c).append(lineSeparator()));
                 }
             }
         }
