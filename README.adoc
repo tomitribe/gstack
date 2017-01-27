@@ -13,5 +13,6 @@ Make simpler and more advanced than using `egrep` + `grep -v` to filter a thread
 [source]
 ----
 jstack 1234 | java -jar gstack-bundle.jar --include=tomitribe --exclude=sun
+java -jar gstack-bundle.jar --file=stack.txt --include=oracle --include=net
 ----
 
